@@ -59,18 +59,67 @@ dataclass で、ネストした Tier A の式は dict のままです。Core の
 `default_trials`（20）回です。時間の引数（`isi`・`cs_duration` など）は各試行に
 「捨てた変数」として記録し、モデルは使いません。
 
-展開する手続き:
+Tier B の 26 手続きのうち、`InhibitionOfDelay` と `PeakProcedure` を除く 24 手続きを展開します。
+この 2 つは CS 内の反応の分布が要るので `unsupported` を返します。
+AST が略式のときは、展開器が最小限を補います:
 
-| 手続き | 段階 | 対照（`expand_control`） |
-|---|---|---|
-| `Blocking` | phase1 → phase2 → test | phase1 を省く |
-| `Overshadowing` | training → test_a → test_b | `test_b` の要素だけで訓練する |
-| `ConditionedInhibition` | training → test | なし |
-| `InhibitionOfDelay`・`PeakProcedure` | 未対応: CS 内の反応の分布が要る | — |
+- `ConditionedInhibition.training`（と `SuperConditioning` に入れ子になったもの）が強化つきの対提示 1 つだけなら、
+  A+ / AI− の混在提示を組み立てます（I は test の式から取ります）。`SummationRetardationTest` にも同じ E+ / EI− の訓練を付けます。
+- 文脈を名指す手続きでは、文脈を足し合わせる集合に入れます（`Expansion.context_as_element`）:
+  `USPreexposure`・`Renewal`・`Reinstatement`・`LatentExtinction`・`ContextualExtinction`・`ContextualFearConditioning`。
+  AST に文脈名が無いときは `ctx`（対照には `ctx_other` / `acq`）を使います。
+- `PavlovianPREE` は、round(p·n) 回の強化試行を乱数を使わず等間隔に置きます。
+- US の欄に CS のラベルが入る手続き（`HigherOrderConditioning`・`SensoryPreconditioning`・`MediatedConditioning`）では、
+  そのラベルに漸近値が無いので、US なしの試行として数えます。
 
-`ConditionedInhibition.training` が強化つきの対提示 1 つだけのときは、展開器が
-A+ / AI− の混在提示を組み立てます（I は test の式から取ります）。ほかの手続きは
-「expansion not implemented」の理由つきで `unsupported` を返します。
+## 法則スイート
+
+`tests/laws/test_respondent_phenomena.py` は、Tier B の conformance の例（`expected_ast`）を全部、展開器と実行器に通し
+（全刺激 α = 0.3、β = 1、各 US の λ = 1、AST に回数が無い段階は 20 試行）、現象を V の不等式だけで判定します。
+例の置き場は `$RESPONDENT_CONFORMANCE_ROOT`、無ければ `contingency-respondent-dsl/conformance/tier-b` を持つ祖先のディレクトリで、
+見つからなければスイートを飛ばします。
+
+- **通過** — R–W で現象の向きが出る。
+- **通過・機構は違う** — 素直な拡張（文脈を要素にする・US ごとに系を分ける）で向きは出るが、その手続きで知られる機構は出ない。
+- **期待どおりの不一致** — R–W では現象が出ない。テストは現象を書き、`xfail(strict=True)` にしてある。
+- **未対応** — CS 内の時間が要る。`expand` が断る。
+
+| # | 手続き | R–W | V での判定 | 結果（スイートの値） |
+|---|---|---|---|---|
+| 1 | HigherOrderConditioning | しない | X→A の後に V_light > 0 | 期待どおりの不一致（V_light = 0） |
+| 2 | SensoryPreconditioning | しない | test で V_light > 0 | 期待どおりの不一致（V_light = 0） |
+| 3 | Counterconditioning | 部分 | V^shock_tone が下がり、V^food_tone > 0 | 通過・機構は違う（0.999 → 0.001、V^food 0.999）。US の系どうしの相互制止は無い |
+| 4 | Blocking | する | V_x < 対照 | 通過（0.000 対 0.500） |
+| 5 | Overshadowing | する | V_dim < 単独訓練、V_loud > V_dim（α 0.5 / 0.2） | 通過（0.286 対 1.000、V_loud 0.714） |
+| 6 | Overexpectation | する | AX+ で V_a が下がり、対照は不変 | 通過（0.999 → 0.500、対照 0.999） |
+| 7 | SuperConditioning | する | V_x > 相手が中性刺激の対照 | 通過（0.969 対 0.500、V_i −0.938） |
+| 8 | RetrospectiveRevaluation | しない | 後向きブロッキング（V_x < 対照）と回復（V_x > 対照） | 期待どおりの不一致（2 例とも V_x = 対照 = 0.500） |
+| 9 | ConditionedInhibition | する | V_i < 0 かつ V_a + V_i → 0 | 通過（V_a 0.997、V_i −0.996）。記録された A+/AX− のデータ（下）にも弁別が出ている |
+| 10 | OccasionSetting | 部分 | FP: V_feature > 0、V_target ≈ 0 | 通過・機構は違う（0.998 / 0.001）。場面設定そのものは要素の和では出ない |
+| 11 | InhibitionOfDelay | しない | — | 未対応 |
+| 12 | SummationRetardationTest | する | ΣV(E+I) < V_E、5 試行後の V_I < 新奇 CS | 通過（0.001 対 0.997、0.664 対 0.832） |
+| 13 | LatentInhibition | しない | 訓練後の V_tone < 対照 | 期待どおりの不一致（1.000 = 1.000） |
+| 14 | USPreexposure | 部分 | V_tone < 対照 | 通過・機構は違う（0.000 対 0.500）。文脈によるブロッキングだけ |
+| 15 | Renewal | 部分 | ΣV（A での test）> ΣV（B での消去の終わり） | 通過・機構は違う（0.750 対 0.000）。文脈 B が制止子になって終わる |
+| 16 | Reinstatement | 部分 | ΣV(test) > ΣV（消去の終わり）、別文脈では不変 | 通過・機構は違う（0.760 対 0.000）。文脈の興奮だけ |
+| 17 | SpontaneousRecovery | しない | V_tone(test) > 消去の終わり | 期待どおりの不一致（時間の変数が無い） |
+| 18 | LatentExtinction | 部分 | ΣV(test) < 対照 | 通過・機構は違う（0.500 対 1.000）。減るのは文脈の分だけ |
+| 19 | PavlovianPREE | しない | 消去後に V(部分) > V(連続) | 期待どおりの不一致（R–W は逆を出す） |
+| 20 | ContextualExtinction | 部分 | ΣV（獲得文脈での test）> 消去の終わり | 通過・機構は違う（0.750 対 0.000） |
+| 21 | ReconsolidationInterference | しない | 普通の消去の後は回復し、想起→消去の後は回復しない | 期待どおりの不一致（どちらも回復しない） |
+| 22 | ConditionedTasteAversion | 部分 | 1 試行後に V_taste > 0 | 通過・機構は違う（0.300）。CS–US の遅延は捨てている |
+| 23 | StimulusGeneralization | しない | V(750 Hz) > V(500 Hz) > 0 | 期待どおりの不一致（訓練していない刺激は 0 のまま） |
+| 24 | ContextualFearConditioning | 部分 | 1 試行後に V_ctx > 0 | 通過・機構は違う（0.300）。置いてから電撃までの間隔は捨てている |
+| 25 | PeakProcedure | しない | — | 未対応 |
+| 26 | MediatedConditioning | しない | V^lithium_flavor > 0 | 期待どおりの不一致（V = 0） |
+
+合計: 通過 6、通過・機構は違う 9、期待どおりの不一致 9、未対応 2（例のファイルは 26。`RetrospectiveRevaluation` と
+`SummationRetardationTest` は例が 2 つずつ）。
+
+9 行目の記録データ: ラットの A+ / AX− 手続きを MED-PC で記録した公開データ（セッション番号の取れる 920 セッション）では、
+CS 8 秒あたりの餌皿への進入が、AX− では A+ の 0.73 倍（セッション 1–5）から 0.44 倍（6–15）、0.20 倍（16 以降）に下がり、
+A+ は 10 前後のままでした。R–W が予測する弁別（AX− の ΣV が V_A より小さい）と向きが合います。
+このデータには X の加算検査・遅延検査はありません。
 
 ## モデル
 
