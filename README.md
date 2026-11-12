@@ -121,7 +121,7 @@ phenomenon by inequalities on V only. Fixtures are found through
 | 26 | MediatedConditioning | no | V^lithium_flavor > 0 | expected mismatch (V = 0) |
 
 Totals: 6 pass, 9 pass with a differing mechanism, 9 expected mismatches, 2 unsupported
-(26 fixture files; `RetrospectiveRevaluation` and `SummationRetardationTest` have two
+(one fixture file per procedure; `RetrospectiveRevaluation` and `SummationRetardationTest` have two
 examples each).
 
 Recorded data for row 9: in a public MED-PC dataset of an A+ / AX− procedure in rats
