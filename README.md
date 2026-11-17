@@ -1,4 +1,4 @@
-# respondent-runner
+# respondent-sim
 
 :jp: [日本語版 README](README.ja.md)
 
@@ -7,7 +7,8 @@ trial-level Rescorla–Wagner model and writes the run as an OKL v1 log.
 
 - **Expander** — turns a Tier B AST into a list of trials (stage, CS set, US, context).
 - **Executor** — compound-CS Rescorla–Wagner with per-stimulus salience.
-- **OKL writer** — each trial becomes a phase marker whose `cue` is the CS set.
+- **OKL writer** — each trial becomes a phase marker; CS and US are written as
+  `stimulus_on` / `stimulus_off` events.
 
 ## Install
 
@@ -16,20 +17,19 @@ From this directory:
 
 ```bash
 mise exec -- python -m venv .venv
-.venv/bin/python -m pip install -e ../../core/contingency-dsl-py -e ../../core/contingency-py \
-  -e ../../experiment/experiment-core -e ../../experiment/session-recorder \
-  -e ../../core/contingency-respondent-dsl
+.venv/bin/python -m pip install -e ../../core/contingency-respondent-dsl \
+  -e ../../experiment/session-recorder
 .venv/bin/python -m pip install -e ".[dev]"
 ```
 
-`contingency-py` and `contingency-dsl-py` are only needed because `experiment-core`
-(required by `session-recorder`) depends on them; this package does not import them.
+The two siblings are the only runtime dependencies. The operant engine
+(`experiment-core`, `contingency-py`) is not needed.
 
 ## Usage
 
 ```python
 from contingency_respondent_dsl import from_dict
-from respondent_runner import RescorlaWagner, expand, expand_control, run, write_okl
+from respondent_sim import RescorlaWagner, expand, expand_control, run, write_okl
 
 node = from_dict(expected_ast)          # a Tier B AST, e.g. a conformance example
 model = RescorlaWagner({"a": 0.3, "x": 0.3}, lambda_by_us={"shock": 1.0})
@@ -49,8 +49,8 @@ used, so procedure text has to be turned into an AST first.
 
 | Nested Tier A form | Trial template |
 |---|---|
-| `Pair.<mode>(cs, us)` | CS = `cs` (a label or `Compound(elements)`), US = `us`; `us="nothing"` means no US |
-| `Extinction(cs)` / `Compound(elements)` / `CSOnly(cs)` | CS without US |
+| `Pair<Mode>(cs, us)` (e.g. `PairForwardDelay`; `Pair.ForwardDelay` is read too) | CS = `cs` (a label or `Compound(cs_list)`), US = `us`; `us="nothing"` means no US |
+| `Extinction(cs)` / `Compound(cs_list)` / `CSOnly(cs)` | CS without US |
 | `USOnly(us)` | US without CS |
 | `Serial(elements=[...])` | intermixed presentation: the element templates are cycled one trial at a time |
 | `Serial(cs_list=[...])` | unsupported (a serial compound needs time within the CS) |
@@ -158,12 +158,14 @@ that a single-CS run matches `simulate_rescorla_wagner` to 1e-12.
 | What | OKL record |
 |---|---|
 | stage | `phase_enter(label=<stage>, name=<context>)` … `phase_exit` |
-| trial | `phase_enter(label="trial-<k>", name=<context>, cue="a+x")` … `phase_exit` |
-| US with an asymptote | `reinforcer_start(potency=λ)` / `reinforcer_end` at the end of the trial |
+| trial | `phase_enter(label="trial-<k>", name=<context>)` … `phase_exit` |
+| each CS of the trial | `stimulus_on(stimulus=<cs>)` at the trial start, `stimulus_off` at the trial end |
+| US of the trial | `stimulus_on(stimulus=<us>)` `us_s` seconds (default 1 s) before the trial end, `stimulus_off` at the trial end |
 
 The clock is virtual: each trial is `trial_s` seconds wide (default 10 s), plus the
-ITI when the AST gives one. The OKL canonical events have no field for stimulus
-presentation, so the CS set is carried by the `cue` context coordinate.
+ITI when the AST gives one. CS and US use the same stimulus events; the log records
+what was presented, not the model. λ and V are not written. A US label without an
+asymptote in the model (a CS label in a US slot) is still written as a stimulus.
 
 ## Tests
 

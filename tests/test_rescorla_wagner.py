@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from respondent_runner.rescorla_wagner import RescorlaWagner, run
-from respondent_runner.trials import Expansion, Trial
+from respondent_sim.rescorla_wagner import RescorlaWagner, run
+from respondent_sim.trials import Expansion, Trial
 
 ALPHA = 0.3
 BETA = 0.5

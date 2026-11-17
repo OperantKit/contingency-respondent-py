@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "respondent-runner"
+name = "respondent-sim"
 version = "0.0.0"
 description = "Pavlovian trial expander (Tier B respondent AST -> trial list) and compound-CS Rescorla-Wagner executor that writes OKL v1."
 readme = "README.md"
@@ -47,7 +47,7 @@ dev = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/respondent_runner"]
+packages = ["src/respondent_sim"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -6,9 +6,10 @@ the conformance ``expected_ast`` shape.
 
 Nested Tier A forms understood here (one form = one trial template):
 
-- ``Pair.<mode>(cs, us)`` -- ``cs`` is a label or ``Compound(elements)``;
-  ``us="nothing"`` means no US. Timing arguments are dropped.
-- ``Extinction(cs)`` / ``Compound(elements)`` -- CS without US.
+- ``Pair<Mode>(cs, us)`` (Core's type name, e.g. ``PairForwardDelay``; the
+  surface spelling ``Pair.ForwardDelay`` is read too) -- ``cs`` is a label or
+  ``Compound(cs_list)``; ``us="nothing"`` means no US. Timing arguments are dropped.
+- ``Extinction(cs)`` / ``Compound(cs_list)`` -- CS without US.
 - ``CSOnly(cs, trials)`` / ``USOnly(us, trials)``.
 - ``Serial(elements=[...])`` -- intermixed presentation: the element templates
   are cycled one trial at a time.
@@ -117,12 +118,17 @@ def _duration(value: Any) -> Duration | None:
     return None
 
 
+def _is_pair(kind: str) -> bool:
+    rest = kind.removeprefix("Pair").removeprefix(".")
+    return kind.startswith("Pair") and rest[:1].isupper()
+
+
 def templates(expr: Any) -> tuple[_Template, ...]:
     """Trial templates of one nested Tier A expression (cycled when > 1)."""
     if not isinstance(expr, Mapping):
         raise UnsupportedExpressionError(f"nested expression not understood: {expr!r}")
     kind = str(expr.get("type", ""))
-    if kind.startswith("Pair."):
+    if _is_pair(kind):
         return (_Template(_cs_set(expr["cs"]), _us_label(expr.get("us")), _dropped(expr)),)
     if kind in ("Extinction", "CSOnly", "Compound"):
         cs = _cs_set(expr["cs"] if kind != "Compound" else expr)

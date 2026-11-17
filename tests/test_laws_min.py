@@ -10,8 +10,8 @@ from typing import Any
 
 from contingency_respondent_dsl import from_dict
 
-from respondent_runner.expand import expand, expand_control
-from respondent_runner.rescorla_wagner import RescorlaWagner, run
+from respondent_sim.expand import expand, expand_control
+from respondent_sim.rescorla_wagner import RescorlaWagner, run
 
 _SEC = {"value": 10, "unit": "s"}
 _DUR = {"value": 15, "unit": "s"}

@@ -1,4 +1,4 @@
-# respondent-runner
+# respondent-sim
 
 :gb: [English README](README.md)
 
@@ -7,7 +7,8 @@ Rescorla–Wagner モデルで走らせ、その結果を OKL v1 のログに書
 
 - **展開器** — Tier B の AST を試行の列 (段階・CS の集合・US・文脈) にします。
 - **実行器** — 刺激ごとの顕著性を持つ、複合 CS の Rescorla–Wagner です。
-- **OKL 書き出し** — 試行ごとに phase marker を書き、その `cue` に CS の集合を入れます。
+- **OKL 書き出し** — 試行ごとに phase marker を書き、CS と US を `stimulus_on` / `stimulus_off`
+  の事象で書きます。
 
 ## インストール
 
@@ -16,20 +17,19 @@ Rescorla–Wagner モデルで走らせ、その結果を OKL v1 のログに書
 
 ```bash
 mise exec -- python -m venv .venv
-.venv/bin/python -m pip install -e ../../core/contingency-dsl-py -e ../../core/contingency-py \
-  -e ../../experiment/experiment-core -e ../../experiment/session-recorder \
-  -e ../../core/contingency-respondent-dsl
+.venv/bin/python -m pip install -e ../../core/contingency-respondent-dsl \
+  -e ../../experiment/session-recorder
 .venv/bin/python -m pip install -e ".[dev]"
 ```
 
-`contingency-py` と `contingency-dsl-py` は、`session-recorder` が要る `experiment-core` が
-依存しているために入れるだけで、このパッケージは import しません。
+実行時の依存はこの 2 つの兄弟パッケージだけです。オペラントのエンジン
+(`experiment-core`・`contingency-py`) は要りません。
 
 ## 使い方
 
 ```python
 from contingency_respondent_dsl import from_dict
-from respondent_runner import RescorlaWagner, expand, expand_control, run, write_okl
+from respondent_sim import RescorlaWagner, expand, expand_control, run, write_okl
 
 node = from_dict(expected_ast)          # Tier B の AST（例: conformance の例）
 model = RescorlaWagner({"a": 0.3, "x": 0.3}, lambda_by_us={"shock": 1.0})
@@ -49,8 +49,8 @@ dataclass で、ネストした Tier A の式は dict のままです。Core の
 
 | ネストした Tier A の形 | 試行の雛形 |
 |---|---|
-| `Pair.<mode>(cs, us)` | CS = `cs` (ラベルか `Compound(elements)`)、US = `us`。`us="nothing"` は US なし |
-| `Extinction(cs)` / `Compound(elements)` / `CSOnly(cs)` | US を伴わない CS |
+| `Pair<Mode>(cs, us)` (例: `PairForwardDelay`。`Pair.ForwardDelay` も読む) | CS = `cs` (ラベルか `Compound(cs_list)`)、US = `us`。`us="nothing"` は US なし |
+| `Extinction(cs)` / `Compound(cs_list)` / `CSOnly(cs)` | US を伴わない CS |
 | `USOnly(us)` | CS を伴わない US |
 | `Serial(elements=[...])` | 混在提示: 要素の雛形を 1 試行ずつ順に巡回する |
 | `Serial(cs_list=[...])` | 未対応 (系列複合刺激は CS 内の時間が要る) |
@@ -149,12 +149,14 @@ session-analyzer の `simulate_rescorla_wagner` / `fit_rescorla_wagner` は、�
 | 対象 | OKL の記録 |
 |---|---|
 | 段階 | `phase_enter(label=<段階>, name=<文脈>)` … `phase_exit` |
-| 試行 | `phase_enter(label="trial-<k>", name=<文脈>, cue="a+x")` … `phase_exit` |
-| 漸近値を持つ US | 試行の終わりに `reinforcer_start(potency=λ)` / `reinforcer_end` |
+| 試行 | `phase_enter(label="trial-<k>", name=<文脈>)` … `phase_exit` |
+| 試行の各 CS | 試行の始めに `stimulus_on(stimulus=<cs>)`、終わりに `stimulus_off` |
+| 試行の US | 試行の終わりの `us_s` 秒 (既定 1 秒) 前に `stimulus_on(stimulus=<us>)`、終わりに `stimulus_off` |
 
 時計は仮想のものです。試行 1 つの幅は `trial_s` 秒 (既定 10 秒) で、AST に ITI があれば
-それを足します。OKL の標準の事象には刺激提示を書く欄が無いので、CS の集合は文脈座標の
-`cue` で書きます。
+それを足します。CS と US は同じ刺激の事象で書きます。ログに書くのは提示した物で、
+モデルの値 (λ・V) は書きません。モデルの上で漸近値を持たない US のラベル (US の欄に
+置いた CS のラベル) も、刺激として書きます。
 
 ## テスト
 

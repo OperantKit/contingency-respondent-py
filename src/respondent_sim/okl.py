@@ -1,15 +1,16 @@
-"""Write a :class:`~respondent_runner.rescorla_wagner.Trace` as an OKL v1 log.
+"""Write a :class:`~respondent_sim.rescorla_wagner.Trace` as an OKL v1 log.
 
 Layout (virtual clock, fixed trial width):
 
 - each stage is a ``phase_enter(label=<stage>, name=<context>)`` ... ``phase_exit``;
-- each trial is a ``phase_enter(label="trial-<k>", name=<context>, cue=<cs>)`` ...
-  ``phase_exit``, where ``cue`` joins the sorted CS labels with ``+`` (``"a+x"``);
-- a US with an asymptote in the model is a ``reinforcer_start`` / ``reinforcer_end``
-  pair at the end of the trial, ``potency`` = its ``lambda``.
+- each trial is a ``phase_enter(label="trial-<k>", name=<context>)`` ... ``phase_exit``;
+- every CS of the trial is a ``stimulus_on`` at the trial start and a
+  ``stimulus_off`` at the trial end;
+- the US, when the trial has one, is a ``stimulus_on`` / ``stimulus_off`` pair
+  ending with the trial.
 
-The OKL v1 canonical events have no stimulus-presentation field, so the CS is
-carried by the ``cue`` context coordinate of the trial marker.
+CS and US are written with the same theory-neutral stimulus events. Model
+quantities (``lambda``, associative strength) are not written to the log.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 from contingency_respondent_dsl.ast import Duration
-from experiment_core import ReinforcerEndEvent, ReinforcerStartEvent
 from session_recorder import OklSink
 
 from .rescorla_wagner import Trace
@@ -31,9 +31,8 @@ def _seconds(d: Duration | None) -> float:
     return 0.0 if d is None else d.value * _UNIT_SECONDS[d.unit]
 
 
-def _ctx(name: str | None, cue: str | None = None) -> dict[str, Any] | None:
-    out = {k: v for k, v in (("name", name), ("cue", cue)) if v}
-    return out or None
+def _ctx(name: str | None) -> dict[str, Any] | None:
+    return {"name": name} if name else None
 
 
 def write_okl(
@@ -57,7 +56,6 @@ def write_okl(
     sink.write_header(**header)
     t = 0.0
     current: str | None = None
-    rid = 0
     for r in trace.records:
         trial = r.trial
         if trial.stage != current:
@@ -66,14 +64,17 @@ def write_okl(
             current = trial.stage
             sink.write_phase_enter(timestamp=t, label=current, context=_ctx(trial.context))
         label = f"trial-{r.index}"
-        cue = "+".join(sorted(trial.cs))
-        sink.write_phase_enter(timestamp=t, label=label, context=_ctx(trial.context, cue))
-        lam = trace.model.asymptote(trial.us)
-        if lam is not None:
-            sink.emit(ReinforcerStartEvent(id=rid, timestamp=t + trial_s - us_s, potency=lam))
-            sink.emit(ReinforcerEndEvent(id=rid, timestamp=t + trial_s))
-            rid += 1
-        t += trial_s
+        cs = sorted(trial.cs)
+        sink.write_phase_enter(timestamp=t, label=label, context=_ctx(trial.context))
+        for s in cs:
+            sink.write_stimulus_on(timestamp=t, stimulus=s)
+        end = t + trial_s
+        if trial.us is not None:
+            sink.write_stimulus_on(timestamp=end - us_s, stimulus=trial.us)
+            sink.write_stimulus_off(timestamp=end, stimulus=trial.us)
+        for s in cs:
+            sink.write_stimulus_off(timestamp=end, stimulus=s)
+        t = end
         sink.write_phase_exit(timestamp=t, label=label)
         t += _seconds(trial.iti)
     if current is not None:

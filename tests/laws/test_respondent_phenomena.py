@@ -33,9 +33,9 @@ from typing import Any
 import pytest
 from contingency_respondent_dsl import from_dict
 
-from respondent_runner.expand import expand, expand_control
-from respondent_runner.rescorla_wagner import RescorlaWagner, Trace, run
-from respondent_runner.trials import Expansion
+from respondent_sim.expand import expand, expand_control
+from respondent_sim.rescorla_wagner import RescorlaWagner, Trace, run
+from respondent_sim.trials import Expansion
 
 ENV_ROOT = "RESPONDENT_CONFORMANCE_ROOT"
 _CANDIDATES = (
