@@ -167,6 +167,22 @@ ITI when the AST gives one. CS and US use the same stimulus events; the log reco
 what was presented, not the model. λ and V are not written. A US label without an
 asymptote in the model (a CS label in a US slot) is still written as a stimulus.
 
+## Stimulus sequence on a real-time clock
+
+`respondent_sim.timeline.stimulus_timeline` returns the stimulus onsets and offsets
+of a respondent program from its time values (unlike the trial-level OKL writer
+above, which uses a fixed trial width). It handles `Pair.ForwardDelay` and `USOnly`
+with an optional `@iti(distribution=fixed, mean=...)`. The session starts with an
+ITI, the ITI runs from the last offset of a trial, and the US lasts the
+`presentation_s` value given by the caller (neither the DSL nor the model carries it).
+
+It is the respondent side of the same-experiment fixtures in contingency-dsl
+(`conformance/equivalence/`): `tests/test_equivalence.py` runs each fixture's
+`respondent` program with each input response sequence and compares the result
+with the fixture's expected stimulus sequence. Set `CONTINGENCY_DSL_CONFORMANCE`
+to the `conformance` directory of a contingency-dsl checkout; by default the
+sibling checkout is used, and the test is skipped when neither is present.
+
 ## Tests
 
 ```bash

@@ -158,6 +158,21 @@ session-analyzer の `simulate_rescorla_wagner` / `fit_rescorla_wagner` は、�
 モデルの値 (λ・V) は書きません。モデルの上で漸近値を持たない US のラベル (US の欄に
 置いた CS のラベル) も、刺激として書きます。
 
+## 実時間の時計での刺激の列
+
+`respondent_sim.timeline.stimulus_timeline` は、レスポンデントの式の時間の値から、
+刺激の on と off の列を返します (上の OKL の書き手は試行の幅を固定で使いますが、
+こちらは式の値を使います)。扱うのは `Pair.ForwardDelay` と `USOnly` で、
+`@iti(distribution=fixed, mean=...)` を付けられます。セッションは ITI から始まり、
+ITI は試行の最後の off から数えます。US の持続は呼び出し側が渡す `presentation_s`
+の値です (DSL にもモデルにもこの値はありません)。
+
+これは contingency-dsl の「同じ実験」の fixture (`conformance/equivalence/`) の
+レスポンデントの側です。`tests/test_equivalence.py` が各 fixture の `respondent` の式を
+入力の反応の列ごとに回し、fixture の期待の刺激の列と比べます。
+`CONTINGENCY_DSL_CONFORMANCE` に contingency-dsl の `conformance` ディレクトリを
+指定します。指定しなければ隣の checkout を使い、どちらも無ければテストを飛ばします。
+
 ## テスト
 
 ```bash
