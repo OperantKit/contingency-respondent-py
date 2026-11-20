@@ -15,20 +15,30 @@ into trial lists for contingency-py and writes the trials as an OKL v1 log.
 
 ## Install
 
-The sibling packages are referenced by local path while this package has no remote.
-From this directory:
+Python 3.11 or newer. This package is not on PyPI. Install it from GitHub; pip
+installs the OperantKit packages it names from GitHub as well. contingency-py's parser,
+contingency-dsl-py, is not on PyPI either, so name it too:
+
+```bash
+pip install git+https://github.com/OperantKit/contingency-dsl-py \
+            git+https://github.com/OperantKit/contingency-respondent-py
+```
+
+The runtime dependencies are contingency-py (branch `rust-engine-only`, which has the
+`contingency.respondent` expansion), contingency-respondent-dsl and session-recorder.
+`experiment-core` is not needed.
+
+contingency-py expands Tier A with its `contingency_core` extension module (the
+contingency-rs engine), which is not on a package index yet: build and install its
+wheel from contingency-py's `core/` directory as its README describes. Without it,
+expanding a procedure raises `ImportError`.
+
+For development, from a clone of this repository:
 
 ```bash
 mise exec -- python -m venv .venv
-.venv/bin/python -m pip install -e ../../core/contingency-dsl-py \
-  -e ../../core/contingency-py -e ../../core/contingency-respondent-dsl \
-  -e ../../experiment/session-recorder
 .venv/bin/python -m pip install -e ".[dev]"
 ```
-
-The runtime dependencies are contingency-py (with its `contingency_core` extension
-module, which expands Tier A), contingency-respondent-dsl and session-recorder.
-`experiment-core` is not needed.
 
 ## Usage
 

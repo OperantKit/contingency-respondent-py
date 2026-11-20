@@ -27,9 +27,9 @@ classifiers = [
   "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-  "contingency-py @ {root:uri}/../../core/contingency-py",
-  "contingency-respondent-dsl @ {root:uri}/../../core/contingency-respondent-dsl",
-  "session-recorder @ {root:uri}/../../experiment/session-recorder",
+  "contingency-py @ git+https://github.com/OperantKit/contingency-py.git@rust-engine-only",
+  "contingency-respondent-dsl @ git+https://github.com/OperantKit/contingency-respondent-dsl.git@main",
+  "session-recorder @ git+https://github.com/OperantKit/session-recorder.git@main",
 ]
 
 [project.optional-dependencies]

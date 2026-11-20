@@ -15,19 +15,29 @@ contingency-py の試行の列に展開し、その試行を OKL v1 のログに
 
 ## インストール
 
-このパッケージに remote が無いあいだは、兄弟パッケージをローカルのパスで参照します。
-このディレクトリで:
+Python 3.11 以上。このパッケージは PyPI にありません。GitHub から入れます。
+このパッケージが名前を挙げる OperantKit の依存も pip が GitHub から入れます。contingency-py の
+パーサー contingency-dsl-py も PyPI に無いので、一緒に挙げます:
+
+```bash
+pip install git+https://github.com/OperantKit/contingency-dsl-py \
+            git+https://github.com/OperantKit/contingency-respondent-py
+```
+
+実行時の依存は contingency-py (branch `rust-engine-only`。`contingency.respondent` の展開がある)・
+contingency-respondent-dsl・session-recorder です。`experiment-core` は要りません。
+
+contingency-py は Tier A を拡張モジュール `contingency_core` (contingency-rs のエンジン) で
+展開します。これはまだパッケージの置き場にありません。contingency-py の `core/` から
+wheel を作って入れてください (手順は contingency-py の README)。無いと、手続きを展開するときに
+`ImportError` になります。
+
+開発するときは、この repo の clone で:
 
 ```bash
 mise exec -- python -m venv .venv
-.venv/bin/python -m pip install -e ../../core/contingency-dsl-py \
-  -e ../../core/contingency-py -e ../../core/contingency-respondent-dsl \
-  -e ../../experiment/session-recorder
 .venv/bin/python -m pip install -e ".[dev]"
 ```
-
-実行時の依存は contingency-py (Tier A を展開する拡張モジュール `contingency_core` を含む)・
-contingency-respondent-dsl・session-recorder です。`experiment-core` は要りません。
 
 ## 使い方
 
