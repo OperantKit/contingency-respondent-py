@@ -3,15 +3,13 @@
 :jp: [日本語版 README](README.ja.md)
 
 Expands the Tier B Pavlovian (respondent) procedures of contingency-respondent-dsl
-into trial lists for contingency-py, runs them on a trial-level Rescorla–Wagner model
-and writes the run as an OKL v1 log.
+into trial lists for contingency-py and writes the trials as an OKL v1 log.
 
 - **Expander** — turns a Tier B AST into a list of trials (stage, CS set, US, context).
   Nested Tier A expressions are expanded by contingency-py (`contingency.respondent`,
   computed by contingency-rs); this package does not expand Tier A itself.
 - **contingency-py expansion** — `TIER_B` registers the Tier B procedures in a
   contingency-py `RespondentRegistry`.
-- **Executor** — compound-CS Rescorla–Wagner with per-stimulus salience.
 - **OKL writer** — each trial becomes a phase marker; CS and US are written as
   `stimulus_on` / `stimulus_off` events.
 
@@ -36,17 +34,16 @@ module, which expands Tier A), contingency-respondent-dsl and session-recorder.
 
 ```python
 from contingency_respondent_dsl import from_dict
-from contingency_respondent import RescorlaWagner, expand, expand_control, run, write_okl
+from contingency_respondent import expand, expand_control, write_okl
 
 node = from_dict(expected_ast)          # a Tier B AST, e.g. a conformance example
-model = RescorlaWagner({"a": 0.3, "x": 0.3}, lambda_by_us={"shock": 1.0})
+expansion = expand(node)                # trials of every stage, in order
+control = expand_control(node)          # control condition, or None
 
-trace = run(expand(node), model)
-v_test = trace.v_at_stage_start("test")  # strengths entering the first test trial
-
-control = expand_control(node)           # control condition, or None
-write_okl(trace, "blocking.txt", {"session_name": "blocking"})
+write_okl(expansion, "blocking.txt", {"session_name": "blocking"})
 ```
+
+To run a model on the trials, see [Running a model](#running-a-model).
 
 ## Expansion rules
 
@@ -68,8 +65,8 @@ every trial of the stage.
 
 Each stage repeats its template for the stage's `*_trials` count, or for
 `default_trials` (20) when the AST gives none. Timing arguments (`isi`,
-`cs_duration`, …) are also recorded on each trial as dropped; the model does not use
-them.
+`cs_duration`, …) are also recorded on each trial as dropped; a trial-level model does
+not use them.
 
 ## Registering in contingency-py
 
@@ -110,86 +107,31 @@ Where the AST is schematic the expander fills in the minimum needed:
   names no context the expander uses `ctx` (and `ctx_other` / `acq` for controls).
 - `PavlovianPREE` places round(p·n) reinforced trials evenly, without randomness.
 - A CS label in a US slot (`HigherOrderConditioning`, `SensoryPreconditioning`,
-  `MediatedConditioning`) has no asymptote, so it counts as a trial without a US.
+  `MediatedConditioning`) stays on the trial as its US label. A model that gives that
+  label no asymptote treats the trial as one without a US.
 
-## Law suite
+## Running a model
 
-`tests/laws/test_respondent_phenomena.py` runs every Tier B conformance fixture
-(`expected_ast`) through the expander and the executor (α = 0.3 for every stimulus,
-β = 1, λ = 1 for each US, 20 trials where the AST gives no count) and judges the
-phenomenon by inequalities on V only. Fixtures are found through
-`$RESPONDENT_CONFORMANCE_ROOT`, else an ancestor directory holding
-`contingency-respondent-dsl/conformance/tier-b`; the suite is skipped without them.
+This package expands procedures; it has no learning model. session-analyzer's
+`simulate_compound_rescorla_wagner` runs the compound-CS Rescorla–Wagner model on the
+trials (the context is summed in when the expansion says so):
 
-- **passes** — R–W gives the direction of the phenomenon.
-- **passes, mechanism differs** — the direction comes out under a plain extension
-  (context as an element, one system per US), but not the mechanism the procedure is
-  known for.
-- **expected mismatch** — R–W does not give the phenomenon; the test states the
-  phenomenon and is `xfail(strict=True)`.
-- **unsupported** — needs time within the CS; `expand` refuses.
+```python
+from session_analyzer.analytics import (
+    CompoundRescorlaWagner, CompoundTrial, simulate_compound_rescorla_wagner,
+)
 
-| # | Procedure | R–W | Judgement on V | Result (values from the suite) |
-|---|---|---|---|---|
-| 1 | HigherOrderConditioning | no | V_light > 0 after X→A | expected mismatch (V_light = 0) |
-| 2 | SensoryPreconditioning | no | V_light > 0 at test | expected mismatch (V_light = 0) |
-| 3 | Counterconditioning | partial | V^shock_tone falls, V^food_tone > 0 | passes, mechanism differs (0.999 → 0.001; V^food 0.999). No reciprocal inhibition between US systems |
-| 4 | Blocking | predicts | V_x < control | passes (0.000 vs 0.500) |
-| 5 | Overshadowing | predicts | V_dim < trained alone; V_loud > V_dim (α 0.5 / 0.2) | passes (0.286 vs 1.000; V_loud 0.714) |
-| 6 | Overexpectation | predicts | V_a falls in AX+; control unchanged | passes (0.999 → 0.500; control 0.999) |
-| 7 | SuperConditioning | predicts | V_x > control whose partner is a neutral stimulus | passes (0.969 vs 0.500; V_i −0.938) |
-| 8 | RetrospectiveRevaluation | no | backward blocking (V_x < control) and recovery (V_x > control) | expected mismatch (V_x = control = 0.500 in both) |
-| 9 | ConditionedInhibition | predicts | V_i < 0 and V_a + V_i → 0 | passes (V_a 0.997, V_i −0.996). Recorded A+/AX− data (below) show the discrimination |
-| 10 | OccasionSetting | partial | FP: V_feature > 0, V_target ≈ 0 | passes, mechanism differs (0.998 / 0.001). Occasion setting itself is not elemental |
-| 11 | InhibitionOfDelay | no | — | unsupported |
-| 12 | SummationRetardationTest | predicts | ΣV(E+I) < V_E; V_I after 5 trials < novel CS | passes (0.001 vs 0.997; 0.664 vs 0.832) |
-| 13 | LatentInhibition | no | V_tone < control after training | expected mismatch (1.000 = 1.000) |
-| 14 | USPreexposure | partial | V_tone < control | passes, mechanism differs (0.000 vs 0.500). Context blocking only |
-| 15 | Renewal | partial | ΣV(test in A) > ΣV(end of extinction in B) | passes, mechanism differs (0.750 vs 0.000). Context B ends inhibitory |
-| 16 | Reinstatement | partial | ΣV(test) > ΣV(end of extinction); other context unchanged | passes, mechanism differs (0.760 vs 0.000). Context excitation only |
-| 17 | SpontaneousRecovery | no | V_tone(test) > end of extinction | expected mismatch (no time variable) |
-| 18 | LatentExtinction | partial | ΣV(test) < control | passes, mechanism differs (0.500 vs 1.000). Only the context's share is lost |
-| 19 | PavlovianPREE | no | V(partial) > V(continuous) after extinction | expected mismatch (R–W gives the reverse) |
-| 20 | ContextualExtinction | partial | ΣV(test in acquisition context) > end of extinction | passes, mechanism differs (0.750 vs 0.000) |
-| 21 | ReconsolidationInterference | no | recovery after plain extinction, none after retrieval–extinction | expected mismatch (no recovery in either) |
-| 22 | ConditionedTasteAversion | partial | V_taste > 0 after 1 trial | passes, mechanism differs (0.300). CS–US delay is dropped |
-| 23 | StimulusGeneralization | no | V(750 Hz) > V(500 Hz) > 0 | expected mismatch (untrained stimuli stay 0) |
-| 24 | ContextualFearConditioning | partial | V_ctx > 0 after 1 trial | passes, mechanism differs (0.300). Placement-to-shock interval is dropped |
-| 25 | PeakProcedure | no | — | unsupported |
-| 26 | MediatedConditioning | no | V^lithium_flavor > 0 | expected mismatch (V = 0) |
+cae = expansion.context_as_element
+trials = [CompoundTrial(t.elements(cae), t.us, t.stage) for t in expansion.trials]
+trace = simulate_compound_rescorla_wagner(
+    trials, CompoundRescorlaWagner({}, lambda_by_us={"shock": 1.0})
+)
+v_test = trace.v_at_stage_start("test")  # strengths entering the first test trial
+```
 
-Totals: 6 pass, 9 pass with a differing mechanism, 9 expected mismatches, 2 unsupported
-(one fixture file per procedure; `RetrospectiveRevaluation` and `SummationRetardationTest` have two
-examples each).
-
-Recorded data for row 9: in a public MED-PC dataset of an A+ / AX− procedure in rats
-(920 sessions with a session number), head entries per 8-s CS interval in AX− fell from
-0.73 of those in A+ (sessions 1–5) to 0.44 (6–15) and 0.20 (16 and later), while A+
-stayed near 10. That is the discrimination R–W predicts (ΣV of AX− below V_A); the
-data have no summation or retardation test of X.
-
-## Model
-
-For every stimulus *i* in the trial's presented set *S*:
-
-ΔV<sub>i</sub> = α<sub>i</sub> β (λ − Σ<sub>j∈S</sub> V<sub>j</sub>)
-
-- *S* is the CS set, plus the context when the expansion marks the context as an element.
-- A trial without a US uses λ = 0 and `beta_nonreinforced` (default: `beta`).
-- Associative strength is kept per US label. A trial with US *u* drives the *u* system
-  toward `lambda_by_us[u]` and the others toward 0. A US label absent from
-  `lambda_by_us` carries no asymptote and counts as a trial without a US.
-- Stimuli not in *S* are not updated.
-
-`Trace.v_at_stage_start(stage)` returns the strengths entering the first trial of a
-stage; `Trace.to_json()` dumps every trial.
-
-## Relation to session-analyzer
-
-session-analyzer's `simulate_rescorla_wagner` / `fit_rescorla_wagner` are a single-CS
-model used to analyse recorded sessions. This package sits beside it rather than
-replacing it: the executor does not import session-analyzer, and the test suite checks
-that a single-CS run matches `simulate_rescorla_wagner` to 1e-12.
+The law suite that runs all 26 Tier B conformance examples this way, and the table of
+which phenomena the Rescorla–Wagner model predicts, are in contingency-bench
+(`tests/test_respondent_laws.py`, extra `respondent`).
 
 ## OKL layout
 
@@ -202,8 +144,7 @@ that a single-CS run matches `simulate_rescorla_wagner` to 1e-12.
 
 The clock is virtual: each trial is `trial_s` seconds wide (default 10 s), plus the
 ITI when the AST gives one. CS and US use the same stimulus events; the log records
-what was presented, not the model. λ and V are not written. A US label without an
-asymptote in the model (a CS label in a US slot) is still written as a stimulus.
+what was presented. A CS label in a US slot is written as a stimulus too.
 
 ## Stimulus sequence on a real-time clock
 

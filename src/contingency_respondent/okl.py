@@ -1,4 +1,4 @@
-"""Write a :class:`~contingency_respondent.rescorla_wagner.Trace` as an OKL v1 log.
+"""Write the trials of an :class:`~contingency_respondent.trials.Expansion` as an OKL v1 log.
 
 Layout (virtual clock, fixed trial width):
 
@@ -9,8 +9,8 @@ Layout (virtual clock, fixed trial width):
 - the US, when the trial has one, is a ``stimulus_on`` / ``stimulus_off`` pair
   ending with the trial.
 
-CS and US are written with the same theory-neutral stimulus events. Model
-quantities (``lambda``, associative strength) are not written to the log.
+CS and US are written with the same theory-neutral stimulus events. The log
+records what is presented; no model quantity is written.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from typing import Any
 from contingency_respondent_dsl.ast import Duration
 from session_recorder import OklSink
 
-from .rescorla_wagner import Trace
+from .trials import Expansion
 
 _UNIT_SECONDS = {"ms": 1e-3, "s": 1.0, "min": 60.0, "h": 3600.0}
 
@@ -36,19 +36,21 @@ def _ctx(name: str | None) -> dict[str, Any] | None:
 
 
 def write_okl(
-    trace: Trace,
+    expansion: Expansion,
     path: str | Path,
     meta: Mapping[str, Any],
     *,
     trial_s: float = 10.0,
     us_s: float = 1.0,
 ) -> Path:
-    """Write ``trace`` to ``path``.
+    """Write the trials of ``expansion`` to ``path``.
 
     ``meta`` is passed to :meth:`session_recorder.OklSink.write_header`;
     ``session_name`` is required, ``clock_type`` defaults to ``"virtual"`` and
     ``session_start`` to ``0.0``.
     """
+    if expansion.unsupported is not None:
+        raise ValueError(f"cannot write an unsupported expansion: {expansion.unsupported}")
     if not 0.0 < us_s <= trial_s:
         raise ValueError(f"need 0 < us_s <= trial_s, got us_s={us_s}, trial_s={trial_s}")
     header = {"clock_type": "virtual", "session_start": 0.0, **meta}
@@ -56,14 +58,13 @@ def write_okl(
     sink.write_header(**header)
     t = 0.0
     current: str | None = None
-    for r in trace.records:
-        trial = r.trial
+    for index, trial in enumerate(expansion.trials):
         if trial.stage != current:
             if current is not None:
                 sink.write_phase_exit(timestamp=t, label=current)
             current = trial.stage
             sink.write_phase_enter(timestamp=t, label=current, context=_ctx(trial.context))
-        label = f"trial-{r.index}"
+        label = f"trial-{index}"
         cs = sorted(trial.cs)
         sink.write_phase_enter(timestamp=t, label=label, context=_ctx(trial.context))
         for s in cs:

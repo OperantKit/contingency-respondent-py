@@ -8,18 +8,16 @@ from pathlib import Path
 
 from contingency_respondent_dsl import from_dict
 from session_recorder import read_log
-from test_laws_min import BLOCKING
+from test_expand_procedures import BLOCKING
 
 from contingency_respondent.expand import expand
 from contingency_respondent.okl import write_okl
-from contingency_respondent.rescorla_wagner import RescorlaWagner, run
 
 
 def _blocking_log(tmp_path: Path):  # type: ignore[no-untyped-def]
     exp = expand(from_dict(BLOCKING))
-    trace = run(exp, RescorlaWagner({}, lambda_by_us={"shock": 1.0}))
     out = tmp_path / "blocking.txt"
-    write_okl(trace, out, {"session_name": "blocking"})
+    write_okl(exp, out, {"session_name": "blocking"})
     return exp, read_log(out)
 
 
@@ -44,9 +42,7 @@ def test_cs_and_us_are_stimulus_events(tmp_path: Path) -> None:
 
     # CS onset at the trial start, in the trial's CS set.
     for marker, trial in zip(trial_enters, exp.trials, strict=True):
-        at_start = {
-            r.args["stimulus"] for r in on if r.timestamp == marker.timestamp
-        }
+        at_start = {r.args["stimulus"] for r in on if r.timestamp == marker.timestamp}
         assert at_start == set(trial.cs)
 
     assert not any(r.type.startswith("reinforcer") for r in log.raw_records)

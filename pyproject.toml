@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "contingency-respondent-py"
 version = "0.0.0"
-description = "Tier B respondent procedures (contingency-respondent-dsl) as contingency-py respondent expansions, plus a compound-CS Rescorla-Wagner executor that writes OKL v1."
+description = "Tier B respondent procedures (contingency-respondent-dsl) as contingency-py respondent expansions, with an OKL v1 writer for their trials."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -16,7 +16,6 @@ keywords = [
   "behavior-analysis",
   "pavlovian-conditioning",
   "respondent-conditioning",
-  "rescorla-wagner",
   "simulation",
 ]
 classifiers = [
@@ -36,7 +35,6 @@ dependencies = [
 [project.optional-dependencies]
 test = [
   "pytest>=8",
-  "session-analyzer @ {root:uri}/../../analysis/session-analyzer",
 ]
 dev = [
   "pytest>=8",
