@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "respondent-sim"
+name = "contingency-respondent-py"
 version = "0.0.0"
-description = "Pavlovian trial expander (Tier B respondent AST -> trial list) and compound-CS Rescorla-Wagner executor that writes OKL v1."
+description = "Tier B respondent procedures (contingency-respondent-dsl) as contingency-py respondent expansions, plus a compound-CS Rescorla-Wagner executor that writes OKL v1."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -28,6 +28,7 @@ classifiers = [
   "Topic :: Scientific/Engineering",
 ]
 dependencies = [
+  "contingency-py @ {root:uri}/../../core/contingency-py",
   "contingency-respondent-dsl @ {root:uri}/../../core/contingency-respondent-dsl",
   "session-recorder @ {root:uri}/../../experiment/session-recorder",
 ]
@@ -47,7 +48,7 @@ dev = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/respondent_sim"]
+packages = ["src/contingency_respondent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

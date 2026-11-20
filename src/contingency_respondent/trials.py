@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from contingency_respondent_dsl.ast import Duration
 
@@ -27,6 +29,14 @@ class Trial:
     dropped:
         Names of time variables in the AST that the trial-level model ignores
         (``isi``, ``cs_duration`` ...).
+    time:
+        Times within the trial as contingency-py's Tier A expansion returns them
+        (``cs_on``, ``cs_off``, ``us_on``, ``us_off``, ``gap``), or ``None`` for a
+        trial this package builds itself. Not used by R–W.
+    order:
+        Presentation order of the CSs, as the Tier A expansion returns it.
+    iti_s:
+        Inter-trial interval in seconds, as the Tier A expansion returns it.
     """
 
     stage: str
@@ -35,6 +45,9 @@ class Trial:
     context: str | None = None
     iti: Duration | None = None
     dropped: tuple[str, ...] = ()
+    time: Mapping[str, Any] | None = None
+    order: tuple[str, ...] | None = None
+    iti_s: float | None = None
 
     def elements(self, context_as_element: bool) -> frozenset[str]:
         """Stimuli whose associative strengths are summed on this trial."""

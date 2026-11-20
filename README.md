@@ -1,11 +1,16 @@
-# respondent-sim
+# contingency-respondent-py
 
 :jp: [日本語版 README](README.ja.md)
 
-Runs Pavlovian (respondent) procedures written in contingency-respondent-dsl on a
-trial-level Rescorla–Wagner model and writes the run as an OKL v1 log.
+Expands the Tier B Pavlovian (respondent) procedures of contingency-respondent-dsl
+into trial lists for contingency-py, runs them on a trial-level Rescorla–Wagner model
+and writes the run as an OKL v1 log.
 
 - **Expander** — turns a Tier B AST into a list of trials (stage, CS set, US, context).
+  Nested Tier A expressions are expanded by contingency-py (`contingency.respondent`,
+  computed by contingency-rs); this package does not expand Tier A itself.
+- **contingency-py expansion** — `TIER_B` registers the Tier B procedures in a
+  contingency-py `RespondentRegistry`.
 - **Executor** — compound-CS Rescorla–Wagner with per-stimulus salience.
 - **OKL writer** — each trial becomes a phase marker; CS and US are written as
   `stimulus_on` / `stimulus_off` events.
@@ -17,19 +22,21 @@ From this directory:
 
 ```bash
 mise exec -- python -m venv .venv
-.venv/bin/python -m pip install -e ../../core/contingency-respondent-dsl \
+.venv/bin/python -m pip install -e ../../core/contingency-dsl-py \
+  -e ../../core/contingency-py -e ../../core/contingency-respondent-dsl \
   -e ../../experiment/session-recorder
 .venv/bin/python -m pip install -e ".[dev]"
 ```
 
-The two siblings are the only runtime dependencies. The operant engine
-(`experiment-core`, `contingency-py`) is not needed.
+The runtime dependencies are contingency-py (with its `contingency_core` extension
+module, which expands Tier A), contingency-respondent-dsl and session-recorder.
+`experiment-core` is not needed.
 
 ## Usage
 
 ```python
 from contingency_respondent_dsl import from_dict
-from respondent_sim import RescorlaWagner, expand, expand_control, run, write_okl
+from contingency_respondent import RescorlaWagner, expand, expand_control, run, write_okl
 
 node = from_dict(expected_ast)          # a Tier B AST, e.g. a conformance example
 model = RescorlaWagner({"a": 0.3, "x": 0.3}, lambda_by_us={"shock": 1.0})
@@ -44,20 +51,51 @@ write_okl(trace, "blocking.txt", {"session_name": "blocking"})
 ## Expansion rules
 
 The input is the object returned by `contingency_respondent_dsl.from_dict`. Tier B
-nodes are dataclasses; nested Tier A expressions stay as dicts. The Core parser is not
+nodes are dataclasses; nested Tier A expressions stay as dicts in the shape
+contingency-py reads (for example `Compound` takes `cs_list`). The Core parser is not
 used, so procedure text has to be turned into an AST first.
 
-| Nested Tier A form | Trial template |
+Each nested Tier A expression is expanded by contingency-py into one trial, and that
+trial is the template the stage repeats. Its CS set, US, order and times are kept on
+every trial of the stage.
+
+| Nested form | Trial template |
 |---|---|
-| `Pair<Mode>(cs, us)` (e.g. `PairForwardDelay`; `Pair.ForwardDelay` is read too) | CS = `cs` (a label or `Compound(cs_list)`), US = `us`; `us="nothing"` means no US |
-| `Extinction(cs)` / `Compound(cs_list)` / `CSOnly(cs)` | CS without US |
-| `USOnly(us)` | US without CS |
-| `Serial(elements=[...])` | intermixed presentation: the element templates are cycled one trial at a time |
-| `Serial(cs_list=[...])` | unsupported (a serial compound needs time within the CS) |
+| `Pair<Mode>(cs, us, …)` (e.g. `PairForwardDelay`; `Pair.ForwardDelay` is read too) | the contingency-py trial; `us="nothing"` means no US |
+| `Extinction(cs)` / `Compound(cs_list)` / `CSOnly(cs)` / `USOnly(us)` | the contingency-py trial |
+| `Serial(elements=[...])` (not a Tier A form; read by this package) | intermixed presentation: the element templates are cycled one trial at a time |
+| `Serial(cs_list=[...])`, `Contingency`, `TrulyRandom`, `ExplicitlyUnpaired`, `ITI`, `Differential` | unsupported (no single repeated trial template) |
 
 Each stage repeats its template for the stage's `*_trials` count, or for
 `default_trials` (20) when the AST gives none. Timing arguments (`isi`,
-`cs_duration`, …) are recorded on each trial as dropped; the model does not use them.
+`cs_duration`, …) are also recorded on each trial as dropped; the model does not use
+them.
+
+## Registering in contingency-py
+
+contingency-py expands Tier A itself and leaves Tier B to expansions registered per
+program. `TIER_B` is the expansion for the procedures here; `registry()` builds a
+`RespondentRegistry` holding it (pass further expansions as arguments).
+
+```python
+from contingency_respondent import registry
+
+trials = registry().expand(expected_ast, {"trials": 20})
+# [{"stage": "phase1", "cs": ["a"], "us": "shock", "context": None,
+#   "order": None, "time": {...}, "iti_s": None}, ...]
+```
+
+Nested expressions go back through the same registry. Options:
+
+| Option | Meaning |
+|---|---|
+| `trials` (required) | trials of every stage whose count the AST does not give; no default is chosen (`RespondentUnresolvedError`) |
+| `control` (default `false`) | expand the control condition instead of the procedure |
+| `seed`, `labels` | passed to every nested Tier A expansion |
+
+A procedure that does not reduce to a trial list (see below) raises
+`RespondentSpecError` with the reason. The trial list is the same as
+`to_trial_dicts(expand(node, default_trials=trials))`.
 
 All 26 Tier B procedures are expanded except `InhibitionOfDelay` and `PeakProcedure`,
 which need the distribution of responding within the CS and return `unsupported`.
@@ -169,7 +207,7 @@ asymptote in the model (a CS label in a US slot) is still written as a stimulus.
 
 ## Stimulus sequence on a real-time clock
 
-`respondent_sim.timeline.stimulus_timeline` returns the stimulus onsets and offsets
+`contingency_respondent.timeline.stimulus_timeline` returns the stimulus onsets and offsets
 of a respondent program from its time values (unlike the trial-level OKL writer
 above, which uses a fixed trial width). It handles `Pair.ForwardDelay` and `USOnly`
 with an optional `@iti(distribution=fixed, mean=...)`. The session starts with an

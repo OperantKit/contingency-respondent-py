@@ -1,4 +1,4 @@
-"""Write a :class:`~respondent_sim.rescorla_wagner.Trace` as an OKL v1 log.
+"""Write a :class:`~contingency_respondent.rescorla_wagner.Trace` as an OKL v1 log.
 
 Layout (virtual clock, fixed trial width):
 

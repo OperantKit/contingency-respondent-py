@@ -10,9 +10,9 @@ from contingency_respondent_dsl import from_dict
 from session_recorder import read_log
 from test_laws_min import BLOCKING
 
-from respondent_sim.expand import expand
-from respondent_sim.okl import write_okl
-from respondent_sim.rescorla_wagner import RescorlaWagner, run
+from contingency_respondent.expand import expand
+from contingency_respondent.okl import write_okl
+from contingency_respondent.rescorla_wagner import RescorlaWagner, run
 
 
 def _blocking_log(tmp_path: Path):  # type: ignore[no-untyped-def]
@@ -62,7 +62,7 @@ def test_cs_and_us_are_stimulus_events(tmp_path: Path) -> None:
 
 def test_writer_does_not_load_experiment_core() -> None:
     code = (
-        "import sys, respondent_sim.okl; "
+        "import sys, contingency_respondent.okl; "
         "sys.exit(1 if 'experiment_core' in sys.modules else 0)"
     )
     assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0

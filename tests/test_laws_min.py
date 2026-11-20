@@ -10,8 +10,8 @@ from typing import Any
 
 from contingency_respondent_dsl import from_dict
 
-from respondent_sim.expand import expand, expand_control
-from respondent_sim.rescorla_wagner import RescorlaWagner, run
+from contingency_respondent.expand import expand, expand_control
+from contingency_respondent.rescorla_wagner import RescorlaWagner, run
 
 _SEC = {"value": 10, "unit": "s"}
 _DUR = {"value": 15, "unit": "s"}
@@ -22,7 +22,7 @@ def _pair(cs: Any, us: str) -> dict[str, Any]:
 
 
 def _compound(*elements: str) -> dict[str, Any]:
-    return {"type": "Compound", "elements": list(elements)}
+    return {"type": "Compound", "cs_list": list(elements)}
 
 
 BLOCKING = {

@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from respondent_sim.timeline import StimulusEvent, stimulus_timeline
+from contingency_respondent.timeline import StimulusEvent, stimulus_timeline
 
 _DEFAULT = Path(__file__).resolve().parents[3] / "core" / "contingency-dsl" / "conformance"
 CONFORMANCE = Path(os.environ.get("CONTINGENCY_DSL_CONFORMANCE", _DEFAULT))

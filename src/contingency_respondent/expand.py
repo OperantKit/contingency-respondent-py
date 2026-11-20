@@ -4,26 +4,45 @@ The input is the object returned by ``contingency_respondent_dsl.from_dict``:
 Tier B nodes are frozen dataclasses, nested Tier A expressions stay as dicts in
 the conformance ``expected_ast`` shape.
 
-Nested Tier A forms understood here (one form = one trial template):
+Nested Tier A expressions are expanded by contingency-py
+(``contingency.respondent``, which runs contingency-rs); this module does not
+expand Tier A itself. A Tier B procedure reads one trial template from each
+nested expression and repeats it over its own stages. A nested dict whose type
+is not Tier A goes to the same expander (under a registry, to its registered
+owner) and must return exactly one trial. A nested Tier B procedure of
+contingency-respondent-dsl is not read: ``from_dict`` turns it into a node,
+which no stage takes as a template, and the procedure is reported as
+unsupported. The forms read this way:
 
 - ``Pair<Mode>(cs, us)`` (Core's type name, e.g. ``PairForwardDelay``; the
   surface spelling ``Pair.ForwardDelay`` is read too) -- ``cs`` is a label or
-  ``Compound(cs_list)``; ``us="nothing"`` means no US. Timing arguments are dropped.
+  ``Compound(cs_list)``; ``us="nothing"`` means no US.
 - ``Extinction(cs)`` / ``Compound(cs_list)`` -- CS without US.
 - ``CSOnly(cs, trials)`` / ``USOnly(us, trials)``.
-- ``Serial(elements=[...])`` -- intermixed presentation: the element templates
-  are cycled one trial at a time.
 
-``Serial(cs_list=[...])`` (a serial compound stimulus) needs within-CS time and
-is reported as unsupported.
+``Serial(elements=[...])`` is read here, not by contingency-py: it is not a
+Tier A form (Tier A ``Serial`` takes ``cs_list``). Its elements are expanded as
+above and cycled one trial at a time (intermixed presentation).
+
+The other Tier A elements (``Serial(cs_list)``, ``Contingency``,
+``TrulyRandom``, ``ExplicitlyUnpaired``, ``ITI``, ``Differential``) do not
+reduce to one repeated trial template, and are reported as unsupported when a
+Tier B procedure nests them.
+
+:data:`TIER_B` registers these procedures in a contingency-py
+``RespondentRegistry`` (see :func:`registry`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Any
 
+from contingency import respondent as tier_a
+from contingency.errors import RespondentSpecError, RespondentUnresolvedError
 from contingency_respondent_dsl.ast import (
     Blocking,
     ConditionedInhibition,
@@ -78,6 +97,28 @@ _UNSUPPORTED_REASONS: Mapping[type, str] = {
 }
 
 
+#: Tier A types whose trial list is one trial template repeated.
+TEMPLATE_TYPES: frozenset[str] = frozenset(
+    {
+        "PairForwardDelay",
+        "PairForwardTrace",
+        "PairSimultaneous",
+        "PairBackward",
+        "Extinction",
+        "CSOnly",
+        "USOnly",
+        "Compound",
+    }
+)
+
+NestedExpand = Callable[[Mapping[str, Any], Mapping[str, Any]], list[dict[str, Any]]]
+"""Expands one nested Tier A expression (``contingency.respondent`` signature)."""
+
+_NESTED: ContextVar[tuple[NestedExpand, Mapping[str, Any]]] = ContextVar(
+    "_NESTED", default=(tier_a.expand, {})
+)
+
+
 class UnsupportedExpressionError(ValueError):
     """Raised internally when a nested expression has no trial-level reading."""
 
@@ -88,14 +129,26 @@ class _Template:
     us: str | None
     dropped: tuple[str, ...] = ()
     iti: Duration | None = None
+    time: Mapping[str, Any] | None = None
+    order: tuple[str, ...] | None = None
+    iti_s: float | None = None
 
 
-def _cs_set(value: Any) -> frozenset[str]:
-    if isinstance(value, str):
-        return frozenset({value})
-    if isinstance(value, Mapping) and value.get("type") == "Compound":
-        return frozenset(str(e) for e in value.get("elements", value.get("cs_list", ())))
-    raise UnsupportedExpressionError(f"CS argument not understood: {value!r}")
+@contextmanager
+def nested_expansion(
+    expand_nested: NestedExpand, options: Mapping[str, Any] | None = None
+) -> Iterator[None]:
+    """Expand nested Tier A expressions with ``expand_nested`` inside the block.
+
+    ``options`` (``seed``, ``labels``) are passed with every nested call; the
+    trial count is always set here. Outside any block, nested expressions go
+    to ``contingency.respondent.expand``.
+    """
+    token = _NESTED.set((expand_nested, dict(options or {})))
+    try:
+        yield
+    finally:
+        _NESTED.reset(token)
 
 
 def _us_label(value: Any) -> str | None:
@@ -106,16 +159,64 @@ def _us_label(value: Any) -> str | None:
     raise UnsupportedExpressionError(f"US argument not understood: {value!r}")
 
 
+def _nested_template(expr: Mapping[str, Any], kind: str) -> _Template:
+    nested, options = _NESTED.get()
+    # One template is read; the Tier B procedure sets the count (an own
+    # ``trials`` of 0, as in a schematic fixture, would return no trial).
+    spec = {**expr, "type": kind}
+    if "trials" in spec:
+        spec["trials"] = 1
+    try:
+        trials = nested(spec, {**options, "trials": 1})
+    except (RespondentSpecError, RespondentUnresolvedError) as exc:
+        raise UnsupportedExpressionError(f"{kind}: {exc}") from exc
+    if len(trials) != 1:
+        raise UnsupportedExpressionError(
+            f"{kind}: expected one trial template, the expansion returned {len(trials)} trials"
+        )
+    first = trials[0]
+    order = first.get("order")
+    us = _us_label(first["us"])
+    time = first.get("time")
+    if us is None and first["us"] is not None:
+        # ``nothing`` reaches contingency-rs as a label; the trial has no US.
+        time = _without_us(time)
+    return _Template(
+        cs=frozenset(str(c) for c in first["cs"]),
+        us=us,
+        dropped=_dropped(expr),
+        time=time,
+        order=None if order is None else tuple(str(c) for c in order),
+        iti_s=first.get("iti_s"),
+    )
+
+
 def _dropped(expr: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(k for k in _TIME_FIELDS if k in expr)
 
 
 def _duration(value: Any) -> Duration | None:
-    if isinstance(value, Duration):
+    if value is None or isinstance(value, Duration):
         return value
     if isinstance(value, Mapping) and "value" in value and "unit" in value:
-        return Duration(value=float(value["value"]), unit=str(value["unit"]))
-    return None
+        try:
+            return Duration(value=float(value["value"]), unit=str(value["unit"]))
+        except (TypeError, ValueError) as exc:
+            raise UnsupportedExpressionError(f"duration not understood: {value!r}") from exc
+    raise UnsupportedExpressionError(f"duration not understood: {value!r}")
+
+
+_US_TIMES = frozenset({"us_on", "us_off"})
+
+
+def _without_us(time: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    """``time`` of the same trial with no US: US times, and a gap to or from one, are null."""
+    if time is None:
+        return None
+    gap = time.get("gap")
+    if isinstance(gap, Mapping) and {gap.get("from"), gap.get("to")} & _US_TIMES:
+        gap = None
+    return {**time, "us_on": None, "us_off": None, "gap": gap}
 
 
 def _is_pair(kind: str) -> bool:
@@ -128,24 +229,21 @@ def templates(expr: Any) -> tuple[_Template, ...]:
     if not isinstance(expr, Mapping):
         raise UnsupportedExpressionError(f"nested expression not understood: {expr!r}")
     kind = str(expr.get("type", ""))
-    if _is_pair(kind):
-        return (_Template(_cs_set(expr["cs"]), _us_label(expr.get("us")), _dropped(expr)),)
-    if kind in ("Extinction", "CSOnly", "Compound"):
-        cs = _cs_set(expr["cs"] if kind != "Compound" else expr)
-        return (_Template(cs, None, _dropped(expr)),)
-    if kind == "USOnly":
-        return (_Template(frozenset(), _us_label(expr["us"]), _dropped(expr)),)
-    if kind == "Serial":
-        if "elements" not in expr:
-            raise UnsupportedExpressionError(
-                "Serial(cs_list) is a serial compound; needs within-CS time"
-            )
+    if kind == "Serial" and "elements" in expr:
         iti = _duration(expr.get("isi"))
         out: list[_Template] = []
         for element in expr["elements"]:
             out.extend(replace(t, iti=iti) for t in templates(element))
         return tuple(out)
-    raise UnsupportedExpressionError(f"nested expression type not handled: {kind!r}")
+    if _is_pair(kind):
+        kind = "Pair" + kind.removeprefix("Pair").removeprefix(".")
+    if kind == "Serial":
+        raise UnsupportedExpressionError(
+            "Serial(cs_list) is a serial compound; needs within-CS time"
+        )
+    if kind in tier_a.TIER_A_TYPES - TEMPLATE_TYPES:
+        raise UnsupportedExpressionError(f"{kind} does not reduce to one repeated trial template")
+    return (_nested_template(expr, kind),)
 
 
 def _own_trials(expr: Any) -> int | None:
@@ -172,6 +270,9 @@ def stage(
             context=context,
             iti=t.iti,
             dropped=t.dropped,
+            time=t.time,
+            order=t.order,
+            iti_s=t.iti_s,
         )
         for t in (tmpl[k % len(tmpl)] for k in range(n))
     )
@@ -300,9 +401,9 @@ def _occasion_setting(node: OccasionSetting, d: int) -> Expansion:
     target = frozenset({node.target})
     both = target | {node.feature}
     if node.mode == "FeaturePositive":
-        training = (_Template(both, node.us), _Template(target, None))
+        training = (_Template(both, _us_label(node.us)), _Template(target, None))
     elif node.mode == "FeatureNegative":
-        training = (_Template(target, node.us), _Template(both, None))
+        training = (_Template(target, _us_label(node.us)), _Template(both, None))
     else:
         raise UnsupportedExpressionError(f"occasion-setting mode not handled: {node.mode!r}")
     probes = (_Template(frozenset({node.feature}), None), _Template(target, None))
@@ -312,14 +413,16 @@ def _occasion_setting(node: OccasionSetting, d: int) -> Expansion:
 
 
 def _summation_retardation(node: SummationRetardationTest, d: int, *, control: bool) -> Expansion:
-    excitor = _Template(frozenset({node.excitor}), node.us)
+    excitor = _Template(frozenset({node.excitor}), _us_label(node.us))
     training = stage("training", _inhibitor_training(excitor, frozenset({node.inhibitor})), d)
     if node.mode == "Summation":
         probe = frozenset({node.excitor}) | (frozenset() if control else {node.inhibitor})
         return Expansion(training + stage("summation_test", (_Template(probe, None),), 1))
     if node.mode == "Retardation":
         cs = f"{node.inhibitor}_probe" if control else node.inhibitor
-        return Expansion(training + stage("retardation", (_Template(frozenset({cs}), node.us),), d))
+        return Expansion(
+            training + stage("retardation", (_Template(frozenset({cs}), _us_label(node.us)),), d)
+        )
     raise UnsupportedExpressionError(f"summation/retardation mode not handled: {node.mode!r}")
 
 
@@ -417,9 +520,10 @@ def _pree(node: PavlovianPREE, d: int, *, control: bool) -> Expansion:
     if len(acq) != 1:
         raise UnsupportedExpressionError("acquisition must be a single trial form")
     # Deterministic spacing: trial k is reinforced when floor((k+1)p) > floor(kp).
-    reinforced, unreinforced = acq[0], replace(acq[0], us=None)
+    reinforced = acq[0]
+    unreinforced = replace(reinforced, us=None, time=_without_us(reinforced.time))
     acquisition = tuple(
-        Trial(stage="acquisition", cs=t.cs, us=t.us, iti=t.iti, dropped=t.dropped)
+        stage("acquisition", (t,), 1)[0]
         for t in (reinforced if int((k + 1) * p) > int(k * p) else unreinforced for k in range(d))
     )
     return Expansion(
@@ -454,7 +558,9 @@ def _reconsolidation(node: ReconsolidationInterference, d: int, *, control: bool
 
 
 def _taste_aversion(node: ConditionedTasteAversion, d: int) -> Expansion:
-    tmpl = _Template(frozenset({node.taste_cs}), node.visceral_us, ("cs_duration", "delay_to_us"))
+    tmpl = _Template(
+        frozenset({node.taste_cs}), _us_label(node.visceral_us), ("cs_duration", "delay_to_us")
+    )
     return Expansion(stage("training", (tmpl,), _n(node.training_trials, None, d)))
 
 
@@ -467,7 +573,7 @@ def _generalization(node: StimulusGeneralization, d: int) -> Expansion:
 
 
 def _contextual_fear(node: ContextualFearConditioning, d: int) -> Expansion:
-    tmpl = _Template(frozenset(), node.us, ("us_onset_from_entry",))
+    tmpl = _Template(frozenset(), _us_label(node.us), ("us_onset_from_entry",))
     return Expansion(
         stage("training", (tmpl,), _n(node.training_trials, None, d), context=node.context),
         context_as_element=True,
@@ -521,6 +627,11 @@ _HAS_CONTROL: frozenset[type] = frozenset(
         ReconsolidationInterference,
     }
 )
+
+HANDLED_TYPES: frozenset[str] = frozenset(
+    kind.__name__ for kind in (*_HANDLERS, *_UNSUPPORTED_REASONS)
+)
+"""AST ``type`` of every Tier B procedure this module recognises (the class name)."""
 
 
 def expand(node: Any, *, default_trials: int = 20) -> Expansion:

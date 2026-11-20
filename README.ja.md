@@ -1,11 +1,16 @@
-# respondent-sim
+# contingency-respondent-py
 
 :gb: [English README](README.md)
 
-contingency-respondent-dsl で書いたパヴロフ型 (レスポンデント) の手続きを、試行単位の
-Rescorla–Wagner モデルで走らせ、その結果を OKL v1 のログに書きます。
+contingency-respondent-dsl の Tier B のパヴロフ型 (レスポンデント) の手続きを、
+contingency-py の試行の列に展開し、試行単位の Rescorla–Wagner モデルで走らせ、
+その結果を OKL v1 のログに書きます。
 
 - **展開器** — Tier B の AST を試行の列 (段階・CS の集合・US・文脈) にします。
+  ネストした Tier A の式は contingency-py (`contingency.respondent`、計算は contingency-rs)
+  が展開します。このパッケージは Tier A を自分では展開しません。
+- **contingency-py の展開** — `TIER_B` が Tier B の手続きを contingency-py の
+  `RespondentRegistry` に登録します。
 - **実行器** — 刺激ごとの顕著性を持つ、複合 CS の Rescorla–Wagner です。
 - **OKL 書き出し** — 試行ごとに phase marker を書き、CS と US を `stimulus_on` / `stimulus_off`
   の事象で書きます。
@@ -17,19 +22,20 @@ Rescorla–Wagner モデルで走らせ、その結果を OKL v1 のログに書
 
 ```bash
 mise exec -- python -m venv .venv
-.venv/bin/python -m pip install -e ../../core/contingency-respondent-dsl \
+.venv/bin/python -m pip install -e ../../core/contingency-dsl-py \
+  -e ../../core/contingency-py -e ../../core/contingency-respondent-dsl \
   -e ../../experiment/session-recorder
 .venv/bin/python -m pip install -e ".[dev]"
 ```
 
-実行時の依存はこの 2 つの兄弟パッケージだけです。オペラントのエンジン
-(`experiment-core`・`contingency-py`) は要りません。
+実行時の依存は contingency-py (Tier A を展開する拡張モジュール `contingency_core` を含む)・
+contingency-respondent-dsl・session-recorder です。`experiment-core` は要りません。
 
 ## 使い方
 
 ```python
 from contingency_respondent_dsl import from_dict
-from respondent_sim import RescorlaWagner, expand, expand_control, run, write_okl
+from contingency_respondent import RescorlaWagner, expand, expand_control, run, write_okl
 
 node = from_dict(expected_ast)          # Tier B の AST（例: conformance の例）
 model = RescorlaWagner({"a": 0.3, "x": 0.3}, lambda_by_us={"shock": 1.0})
@@ -44,20 +50,48 @@ write_okl(trace, "blocking.txt", {"session_name": "blocking"})
 ## 展開の規則
 
 入力は `contingency_respondent_dsl.from_dict` が返すオブジェクトです。Tier B の節点は
-dataclass で、ネストした Tier A の式は dict のままです。Core のパーサは使わないので、
-手続きの文字列は先に AST にしておく必要があります。
+dataclass で、ネストした Tier A の式は contingency-py が読む形の dict のままです
+(例: `Compound` は `cs_list` を取る)。Core のパーサは使わないので、手続きの文字列は
+先に AST にしておく必要があります。
 
-| ネストした Tier A の形 | 試行の雛形 |
+ネストした Tier A の式は contingency-py が 1 試行に展開し、その試行が段階で繰り返す雛形に
+なります。CS の集合・US・順序・時刻は、段階のどの試行にもそのまま残ります。
+
+| ネストした形 | 試行の雛形 |
 |---|---|
-| `Pair<Mode>(cs, us)` (例: `PairForwardDelay`。`Pair.ForwardDelay` も読む) | CS = `cs` (ラベルか `Compound(cs_list)`)、US = `us`。`us="nothing"` は US なし |
-| `Extinction(cs)` / `Compound(cs_list)` / `CSOnly(cs)` | US を伴わない CS |
-| `USOnly(us)` | CS を伴わない US |
-| `Serial(elements=[...])` | 混在提示: 要素の雛形を 1 試行ずつ順に巡回する |
-| `Serial(cs_list=[...])` | 未対応 (系列複合刺激は CS 内の時間が要る) |
+| `Pair<Mode>(cs, us, …)` (例: `PairForwardDelay`。`Pair.ForwardDelay` も読む) | contingency-py の試行。`us="nothing"` は US なし |
+| `Extinction(cs)` / `Compound(cs_list)` / `CSOnly(cs)` / `USOnly(us)` | contingency-py の試行 |
+| `Serial(elements=[...])` (Tier A の形ではない。このパッケージが読む) | 混在提示: 要素の雛形を 1 試行ずつ順に巡回する |
+| `Serial(cs_list=[...])`・`Contingency`・`TrulyRandom`・`ExplicitlyUnpaired`・`ITI`・`Differential` | 未対応 (1 つの雛形の繰り返しにならない) |
 
 各段階は、その段階の `*_trials` の回数だけ雛形を繰り返します。AST に回数が無ければ
 `default_trials` (20) 回です。時間の引数 (`isi`・`cs_duration` など) は各試行に
-「捨てた変数」として記録し、モデルは使いません。
+「捨てた変数」としても記録し、モデルは使いません。
+
+## contingency-py への登録
+
+contingency-py は Tier A を自分で展開し、Tier B はプログラムごとに登録した展開に任せます。
+`TIER_B` はこのパッケージの手続きの展開で、`registry()` はそれを持つ `RespondentRegistry`
+を作ります (ほかの展開は引数で渡す)。
+
+```python
+from contingency_respondent import registry
+
+trials = registry().expand(expected_ast, {"trials": 20})
+# [{"stage": "phase1", "cs": ["a"], "us": "shock", "context": None,
+#   "order": None, "time": {...}, "iti_s": None}, ...]
+```
+
+ネストした式は同じ登録表を通って展開されます。設定:
+
+| 設定 | 意味 |
+|---|---|
+| `trials` (必須) | AST が回数を決めていない段階の試行数。既定値では埋めない (`RespondentUnresolvedError`) |
+| `control` (既定 `false`) | 手続きの代わりに対照条件を展開する |
+| `seed`・`labels` | ネストした Tier A の展開にそのまま渡す |
+
+試行の列にならない手続き (下を参照) は理由つきの `RespondentSpecError` になります。
+試行の列は `to_trial_dicts(expand(node, default_trials=trials))` と同じです。
 
 Tier B の 26 手続きのうち、`InhibitionOfDelay` と `PeakProcedure` を除く 24 手続きを展開します。
 この 2 つは CS 内の反応の分布が要るので `unsupported` を返します。
@@ -160,7 +194,7 @@ session-analyzer の `simulate_rescorla_wagner` / `fit_rescorla_wagner` は、�
 
 ## 実時間の時計での刺激の列
 
-`respondent_sim.timeline.stimulus_timeline` は、レスポンデントの式の時間の値から、
+`contingency_respondent.timeline.stimulus_timeline` は、レスポンデントの式の時間の値から、
 刺激の on と off の列を返します (上の OKL の書き手は試行の幅を固定で使いますが、
 こちらは式の値を使います)。扱うのは `Pair.ForwardDelay` と `USOnly` で、
 `@iti(distribution=fixed, mean=...)` を付けられます。セッションは ITI から始まり、
